@@ -1,3 +1,4 @@
+//ボスの行動を担当するクラス。
 using UnityEngine;
 using System.Collections;
 using Cinemachine;
@@ -47,6 +48,7 @@ public class SlimeAi : EnemyAI
     {
         if (!isAttacking)
         {
+        //現在の状態によって次の行動を決める
         switch (currentState)
         {
             case State.Idle: UpdateIdle(); break;
@@ -80,13 +82,14 @@ public class SlimeAi : EnemyAI
 
         }
     }
+    //待機状態のアップデートメソッド。攻撃の後、少し待機するように作られている。
     public override void UpdateIdle()
     {
         if(!isWaiting){
         exclusiveAction = StartCoroutine(IdleRoutine());
         }
     }
-
+    //攻撃後の待機状態のタイマーを開始するルーチン。これが終わったら次の攻撃が始まる。
     public IEnumerator IdleRoutine(){
         isWaiting = true;
         yield return new WaitForSeconds(waitTime);
@@ -94,8 +97,10 @@ public class SlimeAi : EnemyAI
         isWaiting = false;
         ChangeState(State.Chase);
     }
+    //追跡状態のアップデート。
     public override void UpdateChase()
     {
+        //追跡状態のタイマーを開始する。時間が経ったら、追跡を諦めて攻撃する。
         if(!isChasing){
         exclusiveAction = StartCoroutine(ChaseTimer());
         }
@@ -106,6 +111,7 @@ public class SlimeAi : EnemyAI
             isFacingRight = !isFacingRight;
             transform.Rotate(0,180,0);
         }
+        //プレイヤーが攻撃範囲内なら追跡を諦めて攻撃する
         if(DistanceToPlayer() < attackRange)
         {
             StopCoroutine(exclusiveAction);
@@ -118,7 +124,7 @@ public class SlimeAi : EnemyAI
         pathToPlayer.y = transform.position.y;
         transform.position = pathToPlayer;
     }
-
+    //追跡のタイマーを管理するルーチン。
     public IEnumerator ChaseTimer()
     {
         isChasing = true;
@@ -127,20 +133,23 @@ public class SlimeAi : EnemyAI
         ChangeState(State.Attack);
 
     }
-    
+    //空中状態のアップデート。
     public void UpdateMidair()
     {
+        //ジャンプの頂点に着いたら飛び込み攻撃を開始する。
         if(rb.linearVelocity.y < -0.1f && !isDiving)
         {
             Debug.Log("Dive start");
             exclusiveAction = StartCoroutine(DiveAttack());
         }
     }
-
+    //飛び込み攻撃の処理を担当するルーチン。
     public IEnumerator DiveAttack()
     {
+        //接触ダメージをONにする。
         isDiving = true;
         attackHitbox.SetActive(true);
+        //プレイヤーの位置を保存する
         rb.linearVelocity = Vector2.zero;
         LayerMask floorMask = LayerMask.GetMask("Default");
         RaycastHit2D targetPoint;
@@ -156,15 +165,17 @@ public class SlimeAi : EnemyAI
             isFacingRight = !isFacingRight;
             transform.Rotate(0,180,0);
         }
+        //プレイヤーの位置に照準を当てる
         targetPoint = Physics2D.Raycast(player.position, -Vector2.up, Mathf.Infinity, floorMask);
         Vector2 target = targetPoint.point;
         Debug.Log($"{target.x}, {target.y}");
+        //プレイヤーの方向に飛び込む
         Vector3 diveDirection = new Vector3(target.x + (isFacingRight ? diveOffset : -diveOffset), target.y, transform.position.z) - transform.position;
         rb.AddForce(diveDirection.normalized * diveForce, ForceMode2D.Impulse);
         soundManager.PlayDive();
         //rb.gravityScale = defGrav;
     }
-
+    //地面に着いたら飛び込み攻撃を終了する
     public void OnCollisionEnter2D(Collision2D other)
     {
         if(other.gameObject.tag == "Floor")
@@ -174,7 +185,7 @@ public class SlimeAi : EnemyAI
             }
         }
     }
-
+    //着陸アニメーションを再生するルーチン
     public IEnumerator Landing()
     {
         rb.gravityScale = defaultGrav;
@@ -184,13 +195,21 @@ public class SlimeAi : EnemyAI
         isDiving = false;
         ChangeState(State.Idle);
     }
+    /*
+    攻撃パターンを管理するルーチン。攻撃が三つある：
+    1. 噛みつき: プレイヤーの方向に少し移動しながら近距離攻撃。
+    2. コマ攻撃: ぐるぐる回りながら高スピードで体当たりする攻撃。
+    3. 飛び込み攻撃：空中に上昇して、溜めの後プレイヤー方向に飛ぶ攻撃。
+    この三つの攻撃からランダムに一つが選ばれて、同じ攻撃を二回連続選ばれない。
+    */
     public override IEnumerator Attack()
     {
         isAttacking = true;
         animator.Play("Attack_Windup");
         yield return null;
-
+        //攻撃を選ぶ
         int selection = Random.Range(0,3);
+        //
         if (!isFirstAttack)
         {
             if(selection == previousChoice)
@@ -236,14 +255,14 @@ public class SlimeAi : EnemyAI
         isAttacking = false;
         ChangeState(State.Idle);
     }
-
+    //コマ攻撃を行うルーチン。
     private IEnumerator SpinAttack()
     {
         attackHitbox.SetActive(false);
         yield return new WaitForSeconds(spinChargeTimer);
         
         attackHitbox.SetActive(true);
-        rb.sharedMaterial = spinMaterial;
+        rb.sharedMaterial = spinMaterial; //摩擦の少ないマテリアルに変換
         rb.AddForce(-transform.right * spinForce,ForceMode2D.Impulse);
         soundManager.PlaySpin();
         yield return new WaitForSeconds(0.2f);
@@ -257,6 +276,7 @@ public class SlimeAi : EnemyAI
         ChangeState(State.Idle);
     }
 
+    //ボスが倒された際の演出の処理。エンディングシーンに遷移する。
     public override IEnumerator Die()
     {
         rb.linearVelocity = Vector2.zero;
